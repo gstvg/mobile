@@ -36,7 +36,7 @@ type JavaGen struct {
 	
 	isFlutter bool
 	isRn bool
-	usePromises bool //insted of callbacks
+	usePromises bool //instead of callbacks
 }
 
 type javaClassInfo struct {
@@ -925,7 +925,7 @@ func (g *JavaGen) genVar(o *types.Var) {
 		// rn callback-style getter
 		g.javadoc(doc)
 		g.methodAnnotations()
-		g.Printf("public static native void get%s(Callback successCallback) {\n", o.Name())
+		g.Printf("public static void get%s(Callback successCallback) {\n", o.Name())
 		g.Indent()
 		g.Printf("successCallback.invoke(this.get%s());", o.Name())
 		g.Outdent()
@@ -934,7 +934,7 @@ func (g *JavaGen) genVar(o *types.Var) {
 		// rn promise-style getter
 		g.javadoc(doc)
 		g.methodAnnotations()
-		g.Printf("public static native void get%s(Promise promise) {\n", o.Name())
+		g.Printf("public static void get%s(Promise promise) {\n", o.Name())
 		g.Indent()
 		g.Printf("promise.resolve(this.get%s());", o.Name())
 		g.Outdent()
@@ -1720,7 +1720,7 @@ func (g *JavaGen) GenJava() error {
 			g.Indent()
 			g.Printf("final Map<String, Object> constants = new HashMap<>;")
 			for _, constant := range g.constants {
-				g.Printf("constants.put(%s, this.%s)", constant.Name(), constant.Name())
+				g.Printf(`constants.put("%s", this.%s)`, constant.Name(), constant.Name())
 			}
 			g.Outdent()
 			g.Printf("}\n")
