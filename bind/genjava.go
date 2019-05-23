@@ -36,6 +36,7 @@ type JavaGen struct {
 	
 	isFlutter bool
 	isRn bool
+	usePromises bool //insted of callbacks
 }
 
 type javaClassInfo struct {
@@ -329,14 +330,15 @@ func (g *JavaGen) genStruct(s structInfo) {
 			continue
 		}
 
-		g.methodWithCallback(f)
-		
 		fdoc := doc.Member(f.Name())
 		g.javadoc(fdoc)
 		g.Printf("public final native %s get%s();\n", g.javaType(f.Type()), f.Name())
 		g.javadoc(fdoc)
 		g.methodAnnotations()
 		g.Printf("public final native void set%s(%s v);\n\n", f.Name(), g.javaType(f.Type()))
+
+		g.methodAsync(f, fdoc)
+
 	}
 
 	var isStringer bool
@@ -874,6 +876,32 @@ func (g *JavaGen) genFuncSignature(o *types.Func, jm *java.Func, hasThis bool) {
 		}
 	}
 	g.Printf(";\n")
+	if g.isRn {
+		success := "successCallback.invoke(this.%s(%s));"
+		error := "errorCallback.invoke(e.getMessage());"
+		finalArgs := "Callback successCallback, Callback errorCallback"
+		if g.usePromises {
+			success = "promise.resolve(this.%s(%s));"
+			error = "promise.reject(e.getMessage());"
+			finalArgs = "Promise promise"
+		}
+		g.Printf("public final void %s", finalArgs)
+		g.Printf("(")
+		g.Printf(") {\n")
+		g.Indent()
+		g.Printf("try {")
+		g.Indent()
+		g.Printf(success)
+		g.Outdent()
+		g.Printf("} catch (e Exception) {")
+		g.Indent()
+		g.Printf(error)
+		g.Outdent()
+		g.Printf("}")
+		g.Outdent()
+		g.Printf("}")
+
+	}
 }
 
 func (g *JavaGen) genVar(o *types.Var) {
@@ -891,8 +919,27 @@ func (g *JavaGen) genVar(o *types.Var) {
 
 	// getter
 	g.javadoc(doc)
-	g.methodAnnotations()
 	g.Printf("public static native %s get%s();\n\n", jType, o.Name())
+
+	if g.isRn {
+		// rn callback-style getter
+		g.javadoc(doc)
+		g.methodAnnotations()
+		g.Printf("public static native void get%s(Callback successCallback) {\n", o.Name())
+		g.Indent()
+		g.Printf("successCallback.invoke(this.get%s());", o.Name())
+		g.Outdent()
+		g.Printf("}\n")
+
+		// rn promise-style getter
+		g.javadoc(doc)
+		g.methodAnnotations()
+		g.Printf("public static native void get%s(Promise promise) {\n", o.Name())
+		g.Indent()
+		g.Printf("promise.resolve(this.get%s());", o.Name())
+		g.Outdent()
+		g.Printf("}\n")
+	}
 }
 
 // genCRetClear clears the result value from a JNI call if an exception was
@@ -1665,6 +1712,27 @@ func (g *JavaGen) GenJava() error {
 		g.genConst(c)
 	}
 	g.Printf("\n")
+
+	if g.isRn {
+		if len(g.constants) > 0 {
+			g.Printf("@Override")
+			g.Printf("public Map<String, Object> getConstants() {")
+			g.Indent()
+			g.Printf("final Map<String, Object> constants = new HashMap<>;")
+			for _, constant := range g.constants {
+				g.Printf("constants.put(%s, this.%s)", constant.Name(), constant.Name())
+			}
+			g.Outdent()
+			g.Printf("}\n")
+		}
+		g.Printf("@Override")
+		g.Printf("public String getName() {\n")
+		g.Indent()
+		g.Printf(`return "%s"`, g.className())
+		g.Outdent()
+		g.Printf("}\n")
+	}
+
 	for _, v := range g.vars {
 		g.genVar(v)
 	}
@@ -1702,23 +1770,30 @@ func (g *JavaGen) methodAnnotations() {
 	}
 }
 
-func (g *JavaGen) methodWithCallback(f *types.Var) {
-	
-	fdoc := doc.Member(f.Name())
-	
+func (g *JavaGen) methodAsync(f *types.Var, fdoc string) {
+
 	if g.isFlutter {
 	
 		g.javadoc(fdoc)
 		
 	} else if g.isRn {
-		g.methodAnnotations()
-		
+
 		g.javadoc(fdoc)
-		g.Printf("public final void get%s(Callback successCallback, Callback errorCallback) {\n", f.Name())
-		g.Indent()
-		g.Printf("successCallback.invoke(this.get%s);\n", f.Name())
-		g.Outdent()
-		g.Printf("}\n")
+		g.methodAnnotations()
+
+		if g.usePromises {
+			g.Printf("public final void get%s(Promise promise) {\n", f.Name())
+			g.Indent()
+			g.Printf("promise.resolve(this.get%s());\n", f.Name())
+			g.Outdent()
+			g.Printf("}\n")
+		} else {
+			g.Printf("public final void get%s(Callback successCallback, Callback errorCallback) {\n", f.Name())
+			g.Indent()
+			g.Printf("successCallback.invoke(this.get%s());\n", f.Name())
+			g.Outdent()
+			g.Printf("}\n")
+		}
 	}
 }
 
@@ -1785,7 +1860,7 @@ import go.Seq;
 #include <jni.h>
 
 `
-	flutterPreamble = `import io.flutter.plugin.common.MethodCall;
+	javaflutterPreamble = `import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler;
 import io.flutter.plugin.common.MethodChannel.Result;
@@ -1797,6 +1872,7 @@ import com.facebook.react.bridge.NativeModule;
 import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.uimanager.ViewManager;
 import com.facebook.react.bridge.Callback;
+import com.facebook.react.bridge.Promise;
 
 `
 )
