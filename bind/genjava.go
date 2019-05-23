@@ -327,11 +327,7 @@ func (g *JavaGen) genStruct(s structInfo) {
 		g.javadoc(fdoc)
 		g.Printf("public final native %s get%s();\n", g.javaType(f.Type()), f.Name())
 		g.javadoc(fdoc)
-		g.methodAnnotations()
 		g.Printf("public final native void set%s(%s v);\n\n", f.Name(), g.javaType(f.Type()))
-
-		g.methodAsync(f, fdoc)
-
 	}
 
 	var isStringer bool
@@ -881,7 +877,6 @@ func (g *JavaGen) genVar(o *types.Var) {
 	doc := g.docs[o.Name()].Doc()
 	// setter
 	g.javadoc(doc)
-	g.methodAnnotations()
 	g.Printf("public static native void set%s(%s v);\n", o.Name(), jType)
 
 	// getter
