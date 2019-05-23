@@ -33,6 +33,9 @@ type JavaGen struct {
 	// of exported constructor functions for the type, on the form
 	// func New<Type>(...) *Type
 	constructors map[*types.TypeName][]*types.Func
+	
+	isFlutter bool
+	isRn bool
 }
 
 type javaClassInfo struct {
@@ -242,7 +245,7 @@ func (g *JavaGen) genStruct(s structInfo) {
 		pkgPath = g.Pkg.Path()
 	}
 	n := g.javaTypeName(s.obj.Name())
-	g.Printf(javaPreamble, g.javaPkgName(g.Pkg), n, g.gobindOpts(), pkgPath)
+	g.Printf(g.javaPreamble(), g.javaPkgName(g.Pkg), n, g.gobindOpts(), pkgPath)
 
 	fields := exportedFields(s.t)
 	methods := exportedMethodSet(types.NewPointer(s.obj.Type()))
@@ -258,6 +261,16 @@ func (g *JavaGen) genStruct(s structInfo) {
 		}
 	} else {
 		impls = append(impls, "Seq.Proxy")
+	}
+	
+	if g.isRn {
+		if jinf != nil {
+			if jinf.extends == nil {
+				jinf.extends = &java.Class{Name: "ReactContextBaseJavaModule"}
+			} else {
+			}
+		} else {
+		}
 	}
 
 	pT := types.NewPointer(s.obj.Type())
@@ -316,10 +329,13 @@ func (g *JavaGen) genStruct(s structInfo) {
 			continue
 		}
 
+		g.methodWithCallback(f)
+		
 		fdoc := doc.Member(f.Name())
 		g.javadoc(fdoc)
 		g.Printf("public final native %s get%s();\n", g.javaType(f.Type()), f.Name())
 		g.javadoc(fdoc)
+		g.methodAnnotations()
 		g.Printf("public final native void set%s(%s v);\n\n", f.Name(), g.javaType(f.Type()))
 	}
 
@@ -551,7 +567,7 @@ func (g *JavaGen) genInterface(iface interfaceInfo) {
 	if g.Pkg != nil {
 		pkgPath = g.Pkg.Path()
 	}
-	g.Printf(javaPreamble, g.javaPkgName(g.Pkg), g.javaTypeName(iface.obj.Name()), g.gobindOpts(), pkgPath)
+	g.Printf(g.javaPreamble(), g.javaPkgName(g.Pkg), g.javaTypeName(iface.obj.Name()), g.gobindOpts(), pkgPath)
 
 	var exts []string
 	numM := iface.t.NumMethods()
@@ -870,10 +886,12 @@ func (g *JavaGen) genVar(o *types.Var) {
 	doc := g.docs[o.Name()].Doc()
 	// setter
 	g.javadoc(doc)
+	g.methodAnnotations()
 	g.Printf("public static native void set%s(%s v);\n", o.Name(), jType)
 
 	// getter
 	g.javadoc(doc)
+	g.methodAnnotations()
 	g.Printf("public static native %s get%s();\n\n", jType, o.Name())
 }
 
@@ -1592,7 +1610,7 @@ func (g *JavaGen) GenJava() error {
 	if g.Pkg != nil {
 		pkgPath = g.Pkg.Path()
 	}
-	g.Printf(javaPreamble, g.javaPkgName(g.Pkg), g.className(), g.gobindOpts(), pkgPath)
+	g.Printf(g.javaPreamble(), g.javaPkgName(g.Pkg), g.className(), g.gobindOpts(), pkgPath)
 
 	g.Printf("public abstract class %s {\n", g.className())
 	g.Indent()
@@ -1668,6 +1686,42 @@ func (g *JavaGen) GenJava() error {
 	return nil
 }
 
+func (g *JavaGen) javaPreamble() (preamble string) {
+	preamble = javaPreamble
+	if g.isFlutter {
+		preamble += flutterPreamble
+	} else if g.isRn {
+		preamble += rnPreamble
+	}
+	return
+}
+
+func (g *JavaGen) methodAnnotations() {
+	if g.isRn {
+		g.Printf("@ReactMethod")
+	}
+}
+
+func (g *JavaGen) methodWithCallback(f *types.Var) {
+	
+	fdoc := doc.Member(f.Name())
+	
+	if g.isFlutter {
+	
+		g.javadoc(fdoc)
+		
+	} else if g.isRn {
+		g.methodAnnotations()
+		
+		g.javadoc(fdoc)
+		g.Printf("public final void get%s(Callback successCallback, Callback errorCallback) {\n", f.Name())
+		g.Indent()
+		g.Printf("successCallback.invoke(this.get%s);\n", f.Name())
+		g.Outdent()
+		g.Printf("}\n")
+	}
+}
+
 // embeddedJavaClasses returns the possible empty list of Java types embedded
 // in the given struct type.
 func embeddedJavaClasses(t *types.Struct) []string {
@@ -1731,8 +1785,7 @@ import go.Seq;
 #include <jni.h>
 
 `
-	flutterPreamble = `import io.flutter.app.FlutterActivity;
-import io.flutter.plugin.common.MethodCall;
+	flutterPreamble = `import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler;
 import io.flutter.plugin.common.MethodChannel.Result;
@@ -1743,6 +1796,7 @@ import io.flutter.plugin.common.MethodChannel.Result;
 import com.facebook.react.bridge.NativeModule;
 import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.uimanager.ViewManager;
+import com.facebook.react.bridge.Callback;
 
 `
 )
