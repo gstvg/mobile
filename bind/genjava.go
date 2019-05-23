@@ -246,7 +246,7 @@ func (g *JavaGen) genStruct(s structInfo) {
 		pkgPath = g.Pkg.Path()
 	}
 	n := g.javaTypeName(s.obj.Name())
-	g.Printf(g.javaPreamble(), g.javaPkgName(g.Pkg), n, g.gobindOpts(), pkgPath)
+	g.Printf(javaPreamble, g.javaPkgName(g.Pkg), n, g.gobindOpts(), pkgPath)
 
 	fields := exportedFields(s.t)
 	methods := exportedMethodSet(types.NewPointer(s.obj.Type()))
@@ -264,15 +264,7 @@ func (g *JavaGen) genStruct(s structInfo) {
 		impls = append(impls, "Seq.Proxy")
 	}
 	
-	if g.isRn {
-		if jinf != nil {
-			if jinf.extends == nil {
-				jinf.extends = &java.Class{Name: "ReactContextBaseJavaModule"}
-			} else {
-			}
-		} else {
-		}
-	}
+
 
 	pT := types.NewPointer(s.obj.Type())
 	for _, iface := range g.allIntf {
@@ -290,9 +282,6 @@ func (g *JavaGen) genStruct(s structInfo) {
 		}
 	}
 
-	if g.isFlutter {
-		impls = append(impls, "MethodCallHandler")
-	}
 
 	doc := g.docs[n]
 	g.javadoc(doc.Doc())
@@ -374,174 +363,6 @@ func (g *JavaGen) genStruct(s structInfo) {
 
 	g.Outdent()
 	g.Printf("}\n\n")
-
-	if g.isFlutter || g.isRn {
-
-		if g.isFlutter {
-			g.Printf("public final class %ss implements MethodCallHandler {\n", n)
-		} else {
-			g.Printf("public final class %ss extends ReactContextBaseJavaModule {\n", n)
-		}
-		g.Indent()
-		g.Printf("\nprivate static HashMap<String, %s> list = new HashMap<>;", n)
-
-		if g.isFlutter {
-
-			g.Printf("public static void registerWith(Registrar registrar) {\n")
-			g.Indent()
-			g.Printf(`final MethodChannel channel = new MethodChannel(registrar.messenger(), "%s")`, )
-			g.Printf("channel.setMethodCallHandler(new %s())", )
-			g.Outdent()
-			g.Printf("}\n")
-
-			g.Printf("@Override")
-			g.Printf("public void onMethodCall(MethodCall call, Result result) {\n")
-			g.Indent()
-
-			for _, cons := range cons {
-				if !g.isConsSigSupported(cons.Type()) {
-					g.Printf("// skipped constructor %s.%s with unsupported parameter or return types\n\n", n, f.Name())
-					continue
-				}
-			}
-
-			for _, f := range fields {
-				if t := f.Type(); !g.isSupported(t) {
-					g.Printf("// skipped field %s.%s with unsupported type: %s\n\n", n, f.Name(), t)
-					continue
-				}
-				fdoc := doc.Member(f.Name())
-				g.javadoc(fdoc)
-
-				g.Indent()
-				g.Printf(`if (call.method.equals("get%s")) {\n`)
-				g.flutterListFinder()
-				g.Printf("result.success(item.%s());")
-				g.Printf("return;\n")
-				g.Outdent()
-				g.Printf("}\n")
-
-				g.Indent()
-				g.Printf(`if (call.method.equals("set%s")) {\n`)
-				g.flutterListFinder()
-				g.Printf("item.set%s(call.args[1]));")
-				g.Printf("result.success();")
-				g.Printf("return;\n")
-				g.Outdent()
-				g.Printf("}\n")
-
-			}
-
-			for _, m := range methods {
-				if !g.isSigSupported(m.Type()) {
-					g.Printf("// skipped method %s.%s with unsupported parameter or return types\n\n", n, m.Name())
-					continue
-				}
-				g.javadoc(doc.Member(m.Name()))
-			}
-
-			g.Indent()
-			g.Printf(`if (call.method.equals("destroy")) {\n`)
-			g.Printf("list.remove(call.args[0]);")
-			g.Printf("result.success();")
-			g.Printf("return;\n")
-			g.Outdent()
-			g.Printf("}\n")
-
-			g.Printf("return result.notImplemented();")
-
-			g.Outdent()
-			g.Printf("}\n")
-
-		} else if g.isRn {
-
-			for _, cons := range cons {
-				if !g.isConsSigSupported(cons.Type()) {
-					g.Printf("// skipped constructor %s.%s with unsupported parameter or return types\n\n", n, f.Name())
-					continue
-				}
-			}
-
-			for _, f := range fields {
-				if t := f.Type(); !g.isSupported(t) {
-					g.Printf("// skipped field %s.%s with unsupported type: %s\n\n", n, f.Name(), t)
-					continue
-				}
-
-				fdoc := doc.Member(f.Name())
-
-				g.javadoc(fdoc)
-				g.methodAnnotations()
-				g.Printf("public void get%s(String id, Callback successCallback, Callback errorCallback) {\n", f.Name())
-				g.Indent()
-				g.rnListFinder(false)
-				g.Printf("successCallback.invoke(item.get%s());", f.Name())
-				g.Outdent()
-				g.Printf("}")
-
-				g.javadoc(fdoc)
-				g.methodAnnotations()
-				g.Printf("public void get%s(String id, Promise promise) {\n", f.Name())
-				g.Indent()
-				g.rnListFinder(true)
-				g.Printf("promise.resolve(item.get%s());", f.Name())
-				g.Outdent()
-				g.Printf("}")
-
-				g.javadoc(fdoc)
-				g.methodAnnotations()
-				g.Printf("public void set%s(String id, %s v) {\n", f.Name(), g.javaType(f.Type()))
-				g.Indent()
-				g.Printf("item.set%(v);", f.Name())
-				g.Outdent()
-				g.Printf("}")
-
-
-			}
-
-			for _, m := range methods {
-				if !g.isSigSupported(m.Type()) {
-					g.Printf("// skipped method %s.%s with unsupported parameter or return types\n\n", n, m.Name())
-					continue
-				}
-				g.javadoc(doc.Member(m.Name()))
-			}
-		}
-
-
-		g.methodAnnotations()
-		g.Printf("public void destroy(String id) {\n")
-		g.Indent()
-		g.Printf("this.%ss.remove(id);")
-		g.Outdent()
-		g.Printf("}")
-		g.Outdent()
-		g.Printf("}")
-
-	}
-
-}
-
-func (g *JavaGen) listFinder(arg, error string) {
-	g.Printf("var item = this.list.get(%s);", arg)
-	g.Printf("if (item == null) {")
-	g.Indent()
-	g.Printf(error)
-	g.Printf("return;")
-	g.Outdent()
-	g.Printf("}")
-}
-
-func (g *JavaGen) flutterListFinder() {
-	g.listFinder("call.args[0]", `result.fail("not found");`)
-}
-
-func (g *JavaGen) rnListFinder(promise bool) {
-	if promise {
-		g.listFinder("id", `promise.reject("not found");`)
-	} else {
-		g.listFinder("id", `errorCallback.invoke("not found");`)
-	}
 }
 
 // isConsSigSupported reports whether the generators can handle a given
@@ -741,7 +562,7 @@ func (g *JavaGen) genInterface(iface interfaceInfo) {
 	if g.Pkg != nil {
 		pkgPath = g.Pkg.Path()
 	}
-	g.Printf(g.javaPreamble(), g.javaPkgName(g.Pkg), g.javaTypeName(iface.obj.Name()), g.gobindOpts(), pkgPath)
+	g.Printf(javaPreamble, g.javaPkgName(g.Pkg), g.javaTypeName(iface.obj.Name()), g.gobindOpts(), pkgPath)
 
 	var exts []string
 	numM := iface.t.NumMethods()
@@ -1048,32 +869,6 @@ func (g *JavaGen) genFuncSignature(o *types.Func, jm *java.Func, hasThis bool) {
 		}
 	}
 	g.Printf(";\n")
-	if g.isRn {
-		success := "successCallback.invoke(this.%s(%s));"
-		error := "errorCallback.invoke(e.getMessage());"
-		finalArgs := "Callback successCallback, Callback errorCallback"
-		if g.usePromises {
-			success = "promise.resolve(this.%s(%s));"
-			error = "promise.reject(e.getMessage());"
-			finalArgs = "Promise promise"
-		}
-		g.Printf("public final void %s", finalArgs)
-		g.Printf("(")
-		g.Printf(") {\n")
-		g.Indent()
-		g.Printf("try {")
-		g.Indent()
-		g.Printf(success)
-		g.Outdent()
-		g.Printf("} catch (e Exception) {")
-		g.Indent()
-		g.Printf(error)
-		g.Outdent()
-		g.Printf("}")
-		g.Outdent()
-		g.Printf("}")
-
-	}
 }
 
 func (g *JavaGen) genVar(o *types.Var) {
@@ -1092,26 +887,6 @@ func (g *JavaGen) genVar(o *types.Var) {
 	// getter
 	g.javadoc(doc)
 	g.Printf("public static native %s get%s();\n\n", jType, o.Name())
-
-	if g.isRn {
-		// rn callback-style getter
-		g.javadoc(doc)
-		g.methodAnnotations()
-		g.Printf("public static void get%s(Callback successCallback) {\n", o.Name())
-		g.Indent()
-		g.Printf("successCallback.invoke(this.get%s());", o.Name())
-		g.Outdent()
-		g.Printf("}\n")
-
-		// rn promise-style getter
-		g.javadoc(doc)
-		g.methodAnnotations()
-		g.Printf("public static void get%s(Promise promise) {\n", o.Name())
-		g.Indent()
-		g.Printf("promise.resolve(this.get%s());", o.Name())
-		g.Outdent()
-		g.Printf("}\n")
-	}
 }
 
 // genCRetClear clears the result value from a JNI call if an exception was
@@ -1829,7 +1604,7 @@ func (g *JavaGen) GenJava() error {
 	if g.Pkg != nil {
 		pkgPath = g.Pkg.Path()
 	}
-	g.Printf(g.javaPreamble(), g.javaPkgName(g.Pkg), g.className(), g.gobindOpts(), pkgPath)
+	g.Printf(javaPreamble, g.javaPkgName(g.Pkg), g.className(), g.gobindOpts(), pkgPath)
 
 	g.Printf("public abstract class %s {\n", g.className())
 	g.Indent()
@@ -1885,25 +1660,6 @@ func (g *JavaGen) GenJava() error {
 	}
 	g.Printf("\n")
 
-	if g.isRn {
-		if len(g.constants) > 0 {
-			g.Printf("@Override")
-			g.Printf("public Map<String, Object> getConstants() {")
-			g.Indent()
-			g.Printf("final Map<String, Object> constants = new HashMap<>;")
-			for _, constant := range g.constants {
-				g.Printf(`constants.put("%s", this.%s)`, constant.Name(), constant.Name())
-			}
-			g.Outdent()
-			g.Printf("}\n")
-		}
-		g.Printf("@Override")
-		g.Printf("public String getName() {\n")
-		g.Indent()
-		g.Printf(`return "%s"`, g.className())
-		g.Outdent()
-		g.Printf("}\n")
-	}
 
 	for _, v := range g.vars {
 		g.genVar(v)
@@ -1924,49 +1680,6 @@ func (g *JavaGen) GenJava() error {
 		return g.err
 	}
 	return nil
-}
-
-func (g *JavaGen) javaPreamble() (preamble string) {
-	preamble = javaPreamble
-	if g.isFlutter {
-		preamble += flutterPreamble
-	} else if g.isRn {
-		preamble += rnPreamble
-	}
-	return
-}
-
-func (g *JavaGen) methodAnnotations() {
-	if g.isRn {
-		g.Printf("@ReactMethod")
-	}
-}
-
-func (g *JavaGen) methodAsync(f *types.Var, fdoc string) {
-
-	if g.isFlutter {
-	
-		g.javadoc(fdoc)
-		
-	} else if g.isRn {
-
-		g.javadoc(fdoc)
-		g.methodAnnotations()
-
-		if g.usePromises {
-			g.Printf("public final void get%s(Promise promise) {\n", f.Name())
-			g.Indent()
-			g.Printf("promise.resolve(this.get%s());\n", f.Name())
-			g.Outdent()
-			g.Printf("}\n")
-		} else {
-			g.Printf("public final void get%s(Callback successCallback, Callback errorCallback) {\n", f.Name())
-			g.Indent()
-			g.Printf("successCallback.invoke(this.get%s());\n", f.Name())
-			g.Outdent()
-			g.Printf("}\n")
-		}
-	}
 }
 
 // embeddedJavaClasses returns the possible empty list of Java types embedded
@@ -2030,21 +1743,6 @@ import go.Seq;
 #define __%[3]s_H__
 
 #include <jni.h>
-
-`
-	javaflutterPreamble = `import io.flutter.plugin.common.MethodCall;
-import io.flutter.plugin.common.MethodChannel;
-import io.flutter.plugin.common.MethodChannel.MethodCallHandler;
-import io.flutter.plugin.common.MethodChannel.Result;
-
-`
-	
-	rnPreamble = `import com.facebook.react.ReactPackage;
-import com.facebook.react.bridge.NativeModule;
-import com.facebook.react.bridge.ReactApplicationContext;
-import com.facebook.react.uimanager.ViewManager;
-import com.facebook.react.bridge.Callback;
-import com.facebook.react.bridge.Promise;
 
 `
 )
