@@ -37,6 +37,10 @@ type ObjcGen struct {
 	// of exported constructor functions for the type, on the form
 	// func New<Type>(...) *Type
 	constructors map[*types.TypeName][]*types.Func
+
+	isFlutter bool
+	isRn bool
+	usePromises bool //instead of callbacks
 }
 
 type objcClassInfo struct {

@@ -290,6 +290,10 @@ func (g *JavaGen) genStruct(s structInfo) {
 		}
 	}
 
+	if g.isFlutter {
+		impls = append(impls, "MethodCallHandler")
+	}
+
 	doc := g.docs[n]
 	g.javadoc(doc.Doc())
 	g.Printf("public final class %s", n)
@@ -370,6 +374,174 @@ func (g *JavaGen) genStruct(s structInfo) {
 
 	g.Outdent()
 	g.Printf("}\n\n")
+
+	if g.isFlutter || g.isRn {
+
+		if g.isFlutter {
+			g.Printf("public final class %ss implements MethodCallHandler {\n", n)
+		} else {
+			g.Printf("public final class %ss extends ReactContextBaseJavaModule {\n", n)
+		}
+		g.Indent()
+		g.Printf("\nprivate static HashMap<String, %s> list = new HashMap<>;", n)
+
+		if g.isFlutter {
+
+			g.Printf("public static void registerWith(Registrar registrar) {\n")
+			g.Indent()
+			g.Printf(`final MethodChannel channel = new MethodChannel(registrar.messenger(), "%s")`, )
+			g.Printf("channel.setMethodCallHandler(new %s())", )
+			g.Outdent()
+			g.Printf("}\n")
+
+			g.Printf("@Override")
+			g.Printf("public void onMethodCall(MethodCall call, Result result) {\n")
+			g.Indent()
+
+			for _, cons := range cons {
+				if !g.isConsSigSupported(cons.Type()) {
+					g.Printf("// skipped constructor %s.%s with unsupported parameter or return types\n\n", n, f.Name())
+					continue
+				}
+			}
+
+			for _, f := range fields {
+				if t := f.Type(); !g.isSupported(t) {
+					g.Printf("// skipped field %s.%s with unsupported type: %s\n\n", n, f.Name(), t)
+					continue
+				}
+				fdoc := doc.Member(f.Name())
+				g.javadoc(fdoc)
+
+				g.Indent()
+				g.Printf(`if (call.method.equals("get%s")) {\n`)
+				g.flutterListFinder()
+				g.Printf("result.success(item.%s());")
+				g.Printf("return;\n")
+				g.Outdent()
+				g.Printf("}\n")
+
+				g.Indent()
+				g.Printf(`if (call.method.equals("set%s")) {\n`)
+				g.flutterListFinder()
+				g.Printf("item.set%s(call.args[1]));")
+				g.Printf("result.success();")
+				g.Printf("return;\n")
+				g.Outdent()
+				g.Printf("}\n")
+
+			}
+
+			for _, m := range methods {
+				if !g.isSigSupported(m.Type()) {
+					g.Printf("// skipped method %s.%s with unsupported parameter or return types\n\n", n, m.Name())
+					continue
+				}
+				g.javadoc(doc.Member(m.Name()))
+			}
+
+			g.Indent()
+			g.Printf(`if (call.method.equals("destroy")) {\n`)
+			g.Printf("list.remove(call.args[0]);")
+			g.Printf("result.success();")
+			g.Printf("return;\n")
+			g.Outdent()
+			g.Printf("}\n")
+
+			g.Printf("return result.notImplemented();")
+
+			g.Outdent()
+			g.Printf("}\n")
+
+		} else if g.isRn {
+
+			for _, cons := range cons {
+				if !g.isConsSigSupported(cons.Type()) {
+					g.Printf("// skipped constructor %s.%s with unsupported parameter or return types\n\n", n, f.Name())
+					continue
+				}
+			}
+
+			for _, f := range fields {
+				if t := f.Type(); !g.isSupported(t) {
+					g.Printf("// skipped field %s.%s with unsupported type: %s\n\n", n, f.Name(), t)
+					continue
+				}
+
+				fdoc := doc.Member(f.Name())
+
+				g.javadoc(fdoc)
+				g.methodAnnotations()
+				g.Printf("public void get%s(String id, Callback successCallback, Callback errorCallback) {\n", f.Name())
+				g.Indent()
+				g.rnListFinder(false)
+				g.Printf("successCallback.invoke(item.get%s());", f.Name())
+				g.Outdent()
+				g.Printf("}")
+
+				g.javadoc(fdoc)
+				g.methodAnnotations()
+				g.Printf("public void get%s(String id, Promise promise) {\n", f.Name())
+				g.Indent()
+				g.rnListFinder(true)
+				g.Printf("promise.resolve(item.get%s());", f.Name())
+				g.Outdent()
+				g.Printf("}")
+
+				g.javadoc(fdoc)
+				g.methodAnnotations()
+				g.Printf("public void set%s(String id, %s v) {\n", f.Name(), g.javaType(f.Type()))
+				g.Indent()
+				g.Printf("item.set%(v);", f.Name())
+				g.Outdent()
+				g.Printf("}")
+
+
+			}
+
+			for _, m := range methods {
+				if !g.isSigSupported(m.Type()) {
+					g.Printf("// skipped method %s.%s with unsupported parameter or return types\n\n", n, m.Name())
+					continue
+				}
+				g.javadoc(doc.Member(m.Name()))
+			}
+		}
+
+
+		g.methodAnnotations()
+		g.Printf("public void destroy(String id) {\n")
+		g.Indent()
+		g.Printf("this.%ss.remove(id);")
+		g.Outdent()
+		g.Printf("}")
+		g.Outdent()
+		g.Printf("}")
+
+	}
+
+}
+
+func (g *JavaGen) listFinder(arg, error string) {
+	g.Printf("var item = this.list.get(%s);", arg)
+	g.Printf("if (item == null) {")
+	g.Indent()
+	g.Printf(error)
+	g.Printf("return;")
+	g.Outdent()
+	g.Printf("}")
+}
+
+func (g *JavaGen) flutterListFinder() {
+	g.listFinder("call.args[0]", `result.fail("not found");`)
+}
+
+func (g *JavaGen) rnListFinder(promise bool) {
+	if promise {
+		g.listFinder("id", `promise.reject("not found");`)
+	} else {
+		g.listFinder("id", `errorCallback.invoke("not found");`)
+	}
 }
 
 // isConsSigSupported reports whether the generators can handle a given
